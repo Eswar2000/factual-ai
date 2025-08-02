@@ -23,3 +23,5 @@ nltk
 sentence-transformers
 shap
 bertviz
+spacy 
+textstat
