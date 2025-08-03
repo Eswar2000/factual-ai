@@ -35,11 +35,17 @@ def evaluate(model, X, y, name="Set"):
 
 def train_logistic_regression():
     print("\n🔧 Training: Logistic Regression")
-    model = LogisticRegression(max_iter=1000, random_state=42)
-    model.fit(X_train, y_train)
+    param_grid = {
+        "C": [0.01, 0.1, 1, 10]
+    }
+    grid = GridSearchCV(LogisticRegression(max_iter=1000, random_state=42), param_grid, cv=3)
+    grid.fit(X_train, y_train)
+
+    model = grid.best_estimator_
 
     # Evaluate
     evaluate(model, X_val, y_val, "Validation")
+    evaluate(model, X_test, y_test, "Test")
 
     # Save model
     joblib.dump(model, os.path.join(MODEL_DIR, "vectorizer", "logreg_tfidf.joblib"))
@@ -47,11 +53,21 @@ def train_logistic_regression():
 
 def train_random_forest():
     print("\n🔧 Training: Random Forest")
-    model = RandomForestClassifier(n_estimators=100, max_depth=20, random_state=42)
-    model.fit(X_train, y_train)
+    param_grid = {
+        "n_estimators": [100, 200],
+        "max_depth": [None, 10, 20],
+        "min_samples_split": [2, 5]
+    }
+
+    rf = RandomForestClassifier(random_state=42)
+    grid = GridSearchCV(rf, param_grid, cv=3, n_jobs=-1, verbose=1)
+    grid.fit(X_train, y_train)
+
+    model = grid.best_estimator_
 
     # Evaluate
     evaluate(model, X_val, y_val, "Validation")
+    evaluate(model, X_test, y_test, "Test")
 
     # Save model
     joblib.dump(model, os.path.join(MODEL_DIR, "vectorizer", "rf_tfidf.joblib"))
@@ -59,11 +75,20 @@ def train_random_forest():
 
 def train_svm():
     print("\n🔧 Training: Support Vector Machine")
-    model = SVC(kernel="linear", C=1, probability=True, random_state=42)
-    model.fit(X_train, y_train)
+    param_grid = {
+        "C": [0.1, 1, 10],
+        "kernel": ["linear", "rbf"],
+        "gamma": ["scale", "auto"]
+    }
 
+    svm = SVC(probability=True)
+    grid = GridSearchCV(svm, param_grid, cv=3, n_jobs=-1, verbose=1)
+    grid.fit(X_train, y_train)
+
+    model = grid.best_estimator_
     # Evaluate
     evaluate(model, X_val, y_val, "Validation")
+    evaluate(model, X_test, y_test, "Test")
 
     # Save model
     joblib.dump(model, os.path.join(MODEL_DIR, "vectorizer", "svm_tfidf.joblib"))
