@@ -4,11 +4,13 @@ import warnings
 warnings.filterwarnings("ignore")
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from src.data import load_liar_dataset, preprocess_df, save_processed_data
+from src.data import load_liar_dataset, save_processed_data
+from src.data.clean import run_cleaning
 
 def main():
     raw_dir = Path("data/raw")
-    out_dir = Path("data/processed")
+    classic_out_dir = Path("data/processed/classic")
+    transformer_out_dir = Path("data/processed/transformer")
 
     print("[INFO] Loading raw data...")
     raw_data = load_liar_dataset(raw_dir)
@@ -17,16 +19,25 @@ def main():
         print(f"[INFO] Loaded {split} split: {len(df)} records")
 
     print("[INFO] Preprocessing...")
-    processed = {}
+
+    # Prepare dictionaries to store processed outputs
+    classic_data = {}
+    transformer_data = {}
     for split, df in raw_data.items():
-        processed_df = preprocess_df(df)
-        print(f"[INFO] Processed {split} split: {len(processed_df)} records after cleaning")
-        processed[split] = processed_df
+        df_classic, df_transformer = run_cleaning(df)
+        classic_data[split] = df_classic
+        transformer_data[split] = df_transformer
 
-    print("[INFO] Saving processed data...")
-    save_processed_data(processed, out_dir)
+    # Save processed outputs
+    print("[INFO] Saving classic-cleaned data...")
+    save_processed_data(classic_data, classic_out_dir)
 
-    print("[✅] Preprocessing complete. Files saved to data/processed/")
+    print("[INFO] Saving transformer-cleaned data...")
+    save_processed_data(transformer_data, transformer_out_dir)
+
+    print("[✅] Preprocessing complete. Output saved to:")
+    print(f" - {classic_out_dir}/")
+    print(f" - {transformer_out_dir}/")
 
 if __name__ == "__main__":
     main()
