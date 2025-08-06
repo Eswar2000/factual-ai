@@ -3,14 +3,18 @@ import numpy as np
 import string
 import os
 from nltk.corpus import stopwords
+from sklearn.preprocessing import LabelEncoder
 from textblob import TextBlob
 import spacy
 import textstat
+from pathlib import Path
+import joblib
+from tqdm import tqdm
 nlp = spacy.load("en_core_web_sm")
 
 STOPWORDS = set(stopwords.words('english'))
 
-def extract_basic_features(input_csv_path: str, output_dir: str, dataset: str):
+def extract_basic_features(input_csv_path: str, output_dir: str, encoding_dir: str, dataset: str, mode: str):
     # Load the processed dataset
     df = pd.read_csv(input_csv_path)
 
@@ -19,49 +23,77 @@ def extract_basic_features(input_csv_path: str, output_dir: str, dataset: str):
 
     df["statement"].fillna("", inplace=True)
 
+    # Handle encoders
+    le_subject = LabelEncoder()
+    le_party = LabelEncoder()
+
+    # Limit speaker cardinality
+    top_speakers = df["speaker"].value_counts().nlargest(20).index
+    df["speaker_group"] = df["speaker"].apply(lambda x: x if x in top_speakers else "Other")
+    le_speaker = LabelEncoder()
+
+    df["subject_encoded"] = le_subject.fit_transform(df["subject"].fillna("Unknown"))
+    df["party_encoded"] = le_party.fit_transform(df["party_affiliation"].fillna("Unknown"))
+    df["speaker_encoded"] = le_speaker.fit_transform(df["speaker_group"].fillna("Other"))
+
+    # Save encoders
+    Path(encoding_dir+"/"+mode).mkdir(parents=True, exist_ok=True)
+    joblib.dump(le_subject, f"{encoding_dir}/{mode}/{dataset}_subject_encoder.joblib")
+    joblib.dump(le_party, f"{encoding_dir}/{mode}/{dataset}_party_encoder.joblib")
+    joblib.dump(le_speaker, f"{encoding_dir}/{mode}/{dataset}_speaker_encoder.joblib")
+
     features = []
     
-    for text in df["statement"].fillna("").astype(str):
-        doc = nlp(text)
-        
-        char_count = len(text)
-        word_count = len(text.split())
-        avg_word_len = sum(len(word) for word in text.split()) / word_count if word_count else 0
-        stopword_ratio = sum(1 for word in doc if word.is_stop) / len(doc) if len(doc) > 0 else 0
-        punctuation_count = sum(1 for c in text if c in string.punctuation)
-        digit_count = sum(1 for c in text if c.isdigit())
-        uppercase_ratio = sum(1 for c in text if c.isupper()) / len(text) if len(text) > 0 else 0
-        exclamation_count = text.count("!")
-        noun_ratio = sum(1 for token in doc if token.pos_ == "NOUN") / len(doc) if len(doc) > 0 else 0
-        verb_ratio = sum(1 for token in doc if token.pos_ == "VERB") / len(doc) if len(doc) > 0 else 0
-        named_entity_count = len(list(doc.ents))
-        readability_score = textstat.flesch_reading_ease(text)
-        sentiment = TextBlob(text).sentiment
-        
+    for _, row in tqdm(df.iterrows(), total=len(df)):
+        statement = str(row["statement"])
+        context = str(row["context"])
+
+        doc_stmt = nlp(statement)
+        doc_ctx = nlp(context)
+
+        sentiment = TextBlob(statement).sentiment
+        ctx_sentiment = TextBlob(context).sentiment
+
         features.append({
-            "char_count": char_count,
-            "word_count": word_count,
-            "avg_word_length": avg_word_len,
-            "stopword_ratio": stopword_ratio,
-            "punctuation_count": punctuation_count,
-            "digit_count": digit_count,
-            "uppercase_ratio": uppercase_ratio,
-            "exclamation_count": exclamation_count,
-            "noun_ratio": noun_ratio,
-            "verb_ratio": verb_ratio,
-            "named_entity_count": named_entity_count,
-            "readability_score": readability_score,
+            # Statement-based features
+            "char_count": len(statement),
+            "word_count": len(statement.split()),
+            "avg_word_len": np.mean([len(w) for w in statement.split()]) if statement.split() else 0,
+            "stopword_ratio": len([t for t in doc_stmt if t.is_stop]) / (len(doc_stmt) + 1e-5),
+            "punctuation_ratio": len([c for c in statement if c in string.punctuation]) / (len(statement) + 1e-5),
+            "uppercase_ratio": sum(1 for c in statement if c.isupper()) / (len(statement) + 1e-5),
+            "digit_ratio": sum(1 for c in statement if c.isdigit()) / (len(statement) + 1e-5),
+            "exclamation_ratio": statement.count("!") / (len(statement) + 1e-5),
+            "noun_ratio": len([t for t in doc_stmt if t.pos_ == "NOUN"]) / (len(doc_stmt) + 1e-5),
+            "verb_ratio": len([t for t in doc_stmt if t.pos_ == "VERB"]) / (len(doc_stmt) + 1e-5),
+            "num_named_entities": len(doc_stmt.ents),
+            "readability": textstat.flesch_reading_ease(statement),
             "sentiment_polarity": sentiment.polarity,
-            "sentiment_subjectivity": sentiment.subjectivity
+            "sentiment_subjectivity": sentiment.subjectivity,
+
+            # Context-based features
+            "ctx_char_count": len(context),
+            "ctx_word_count": len(context.split()),
+            "ctx_avg_word_len": np.mean([len(w) for w in context.split()]) if context.split() else 0,
+            "ctx_stopword_ratio": len([t for t in doc_ctx if t.is_stop]) / (len(doc_ctx) + 1e-5),
+            "ctx_punctuation_ratio": len([c for c in context if c in string.punctuation]) / (len(context) + 1e-5),
+            "ctx_readability": textstat.flesch_reading_ease(context),
+            "ctx_sentiment_polarity": ctx_sentiment.polarity,
+            "ctx_sentiment_subjectivity": ctx_sentiment.subjectivity,
+
+            # Encoded categorical fields
+            "subject_encoded": row["subject_encoded"],
+            "party_encoded": row["party_encoded"],
+            "speaker_encoded": row["speaker_encoded"]
         })
 
     features_df = pd.DataFrame(features)
     df_out = pd.concat([df, features_df], axis=1)
     # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(output_dir+"/"+mode, exist_ok=True)
 
     # Save basic features
-    basic_path = os.path.join(output_dir, f"{dataset}_basic_features.csv")
+    basic_path = os.path.join(output_dir, mode, f"{dataset}_basic_features.csv")
     df_out.to_csv(basic_path, index=False)
 
     print(f"Basic features saved to: {basic_path}")
