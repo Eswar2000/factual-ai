@@ -4,6 +4,8 @@ import os
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import torch
+from transformers import AutoTokenizer, AutoModel
 from wordcloud import WordCloud
 from sklearn.feature_extraction.text import TfidfVectorizer
 from textblob import TextBlob
@@ -14,48 +16,49 @@ from sklearn.preprocessing import LabelEncoder
 # Output folder
 EDA_OUTPUT_DIR = "analysis/eda_outputs"
 os.makedirs(EDA_OUTPUT_DIR, exist_ok=True)
+os.makedirs(EDA_OUTPUT_DIR+"/classic", exist_ok=True)
+os.makedirs(EDA_OUTPUT_DIR+"/transformer", exist_ok=True)
 
-
-def load_data(path="data/processed/train.csv"):
+def load_data(path):
     return pd.read_csv(path)
 
 
-def plot_label_distribution(df):
+def plot_label_distribution(df, mode):
     sns.countplot(data=df, x="label", order=df["label"].value_counts().index)
     plt.title("Label Distribution")
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.savefig(os.path.join(EDA_OUTPUT_DIR, "label_distribution.png"))
+    plt.savefig(os.path.join(EDA_OUTPUT_DIR, mode, "label_distribution.png"))
     plt.close()
 
 
-def plot_sentence_length_distribution(df):
+def plot_sentence_length_distribution(df, mode):
     df["sentence_length"] = df["statement"].str.split().apply(len)
     sns.histplot(df["sentence_length"], kde=True, bins=30)
     plt.title("Distribution of Sentence Lengths")
     plt.tight_layout()
-    plt.savefig(os.path.join(EDA_OUTPUT_DIR, "sentence_length_distribution.png"))
+    plt.savefig(os.path.join(EDA_OUTPUT_DIR, mode, "sentence_length_distribution.png"))
     plt.close()
 
 
-def plot_sentiment_distribution(df):
+def plot_sentiment_distribution(df, mode):
     df["sentiment"] = df["statement"].apply(lambda x: TextBlob(x).sentiment.polarity)
     sns.histplot(df["sentiment"], kde=True, bins=30)
     plt.title("Sentiment Polarity Distribution")
     plt.tight_layout()
-    plt.savefig(os.path.join(EDA_OUTPUT_DIR, "sentiment_distribution.png"))
+    plt.savefig(os.path.join(EDA_OUTPUT_DIR, mode, "sentiment_distribution.png"))
     plt.close()
 
 
-def generate_wordclouds(df):
+def generate_wordclouds(df, mode):
     labels = df["label"].unique()
     for label in labels:
         text = " ".join(df[df["label"] == label]["statement"])
         wc = WordCloud(width=800, height=400, background_color="white").generate(text)
-        wc.to_file(os.path.join(EDA_OUTPUT_DIR, f"wordcloud_{label}.png"))
+        wc.to_file(os.path.join(EDA_OUTPUT_DIR, mode, f"wordcloud_{label}.png"))
 
 
-def plot_top_tfidf_words(df, top_n=15):
+def plot_top_tfidf_words(df, mode, top_n=15):
     vectorizer = TfidfVectorizer(max_features=10000, stop_words="english")
     X = vectorizer.fit_transform(df["statement"])
     labels = df["label"].unique()
@@ -71,14 +74,11 @@ def plot_top_tfidf_words(df, top_n=15):
         sns.barplot(x=top_scores, y=top_words)
         plt.title(f"Top TF-IDF Words - {label}")
         plt.tight_layout()
-        plt.savefig(os.path.join(EDA_OUTPUT_DIR, f"top_tfidf_{label}.png"))
+        plt.savefig(os.path.join(EDA_OUTPUT_DIR, mode, f"top_tfidf_{label}.png"))
         plt.close()
 
 
-def plot_umap_projection(df):
-    import torch
-    from transformers import AutoTokenizer, AutoModel
-
+def plot_umap_projection(df, mode):
     tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
     model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
 
@@ -100,20 +100,21 @@ def plot_umap_projection(df):
     plt.scatter(embedding_2d[:, 0], embedding_2d[:, 1], c=label_ids, cmap="tab10", s=10)
     plt.title("UMAP Projection of Sentence Embeddings")
     plt.tight_layout()
-    plt.savefig(os.path.join(EDA_OUTPUT_DIR, "umap_projection.png"))
+    plt.savefig(os.path.join(EDA_OUTPUT_DIR, mode, "umap_projection.png"))
     plt.close()
 
 
 def run_eda():
-    df = load_data()
-    print(f"Loaded {len(df)} records")
-
-    plot_label_distribution(df)
-    plot_sentence_length_distribution(df)
-    plot_sentiment_distribution(df)
-    generate_wordclouds(df)
-    plot_top_tfidf_words(df)
-    plot_umap_projection(df)
+    for mode in ["classic", "transformer"]:
+        print(f"Running EDA on train for {mode} mode...")
+        df = load_data(f"data/processed/{mode}/train.csv")
+        print(f"Loaded {len(df)} records")
+        plot_label_distribution(df, mode)
+        plot_sentence_length_distribution(df, mode)
+        plot_sentiment_distribution(df, mode)
+        generate_wordclouds(df, mode)
+        plot_top_tfidf_words(df, mode)
+        plot_umap_projection(df, mode)
 
 
 if __name__ == "__main__":
